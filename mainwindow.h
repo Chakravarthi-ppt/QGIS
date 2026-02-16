@@ -75,8 +75,11 @@
 #include <QtSql>
 #include <QUuid>
 #include <QBuffer>
+#include <QVector>
+#include <QColorDialog>
+#include <QRegularExpression>
+#include <QStandardPaths>
 #include <QSqlQuery>
-
 #include "gdal_priv.h"
 #include "ogrsf_frmts.h"
 #include "citysearch.h"
@@ -100,7 +103,6 @@ public:
     void flashMarker();
     void highlightAreaAroundPoint(double centerX, double centerY, double radius);
     void addSelectionRectangle(double x, double y, double width, double height);
-
 protected:
     void dragEnterEvent(QDragEnterEvent *event) override;
     void dropEvent(QDropEvent *event) override;
@@ -129,6 +131,7 @@ private:
         QString projection;
         QSize imageSize;
     };
+    QAction *addDelimitedTextAction;
 
     QList<GeoreferenceInfo> georeferencedImagesInfo;
     QList<QGraphicsPixmapItem*> georeferencedImages;
@@ -312,24 +315,39 @@ private:
     QAction *loadFromDBAction;
     QAction *dbManagerAction;
 
+    void createVectorLayerFromCoordinates(const QString &geometryType,
+                                          const QVector<QPointF> &coords,
+                                          const QString &layerName,
+                                          const QString &description);
+
+    void loadDelimitedTextLayer(const QString &filePath);
+    QVector<QPointF> parseCoordinatesFromCSV(const QString &filePath,
+                                             const QString &xField,
+                                             const QString &yField);
+    void createLayerFromCSVPoints(const QString &layerName,
+                                  const QString &geometryType,
+                                  const QVector<QPointF> &coords,
+                                  const QColor &color);
+
+
     // Database methods
     bool connectToPostgreSQL(const QString &host, int port,
-                            const QString &dbName,
-                            const QString &user,
-                            const QString &password);
+                             const QString &dbName,
+                             const QString &user,
+                             const QString &password);
     void closeDatabaseConnection();
     void setupImageTable();
     bool testDatabaseConnection(const QString &host, int port,
-                               const QString &dbName,
-                               const QString &user,
-                               const QString &password);
+                                const QString &dbName,
+                                const QString &user,
+                                const QString &password);
 
     bool storeImageInDatabase(const QString &filePath,
-                             const QString &layerName = QString(),
-                             const QString &description = QString());
-    bool storePixmapInDatabase(const QPixmap &pixmap,
-                              const QString &layerName,
+                              const QString &layerName = QString(),
                               const QString &description = QString());
+    bool storePixmapInDatabase(const QPixmap &pixmap,
+                               const QString &layerName,
+                               const QString &description = QString());
 
     bool loadImageFromDatabase(int imageId);
     bool loadImageFromDatabase(const QString &uuid);
@@ -448,6 +466,8 @@ private:
     void showProjectionContextMenu(const QPoint &globalPos);
     void animateCRSChange();
     void createTable();
+    bool loadVectorFromDatabase(int fileId, const QString &fileName, const QString &fileType, const QByteArray &fileData, const QString &layerName);
+    void showCreateVectorDialog();
 private slots:
     void onLoadVectorFile(const QString &filePath);
     void onCreateNewProject();
@@ -473,6 +493,8 @@ private slots:
     void onProjectionLabelClicked();
     void showCRSSelectionDialog();
     void onCRSChanged(const QString &crs);
+    void onAddDelimitedTextLayer();  // Add this line
+
 
     // Image slots
     void onLoadImage();

@@ -20,6 +20,7 @@
 #include <QFont>
 #include <QClipboard>
 #include <QHeaderView>
+#include <QRadioButton>
 #include <QStackedWidget>
 #include <QGraphicsDropShadowEffect>
 #include <QToolButton>
@@ -170,7 +171,7 @@ MainWindow::MainWindow(QWidget *parent)
 
     // Initialize UI components in correct order
     setupMenuBar();
-    setupToolBars();        // ← NOW dbConnectionCombo is created!
+    setupToolBars();
     setupDockWidgets();
     setupCentralWidget();
     setupStatusBar();
@@ -472,7 +473,6 @@ void MainWindow::setupMenuBar()
                 QKeySequence("Ctrl+Shift+F")
                 );
 
-
     // Image view actions
     zoomImageInAction = viewMenu->addAction(QIcon(":/icons/zoom_in.png"), "Zoom Image In", this, &MainWindow::onZoomImageIn);
     zoomImageOutAction = viewMenu->addAction(QIcon(":/icons/zoom_out.png"), "Zoom Image Out", this, &MainWindow::onZoomImageOut);
@@ -535,6 +535,16 @@ void MainWindow::setupMenuBar()
 
     layerMenu->addSeparator();
 
+    QAction *createVectorAction = layerMenu->addAction(
+        QIcon(":/icons/vector_layer.png"),
+        "Create Vector from Coordinates...",
+        this,
+        &MainWindow::showCreateVectorDialog
+    );
+    createVectorAction->setShortcut(QKeySequence("Ctrl+Shift+V"));
+
+layerMenu->addSeparator();
+
     toggleEditingAction = layerMenu->addAction(QIcon(":/icons/Toggle_editing.png"), "Toggle Editing", this, &MainWindow::onToggleEditing);
     saveLayerEditsAction = layerMenu->addAction(QIcon(":/icons/save_edit.png"), "Save Layer Edits");
 
@@ -549,6 +559,16 @@ void MainWindow::setupMenuBar()
     openAttributeTableAction->setShortcut(QKeySequence("F6"));
 
     layerMenu->addAction("Filter Attribute Table");
+    layerMenu->addSeparator();
+
+    addDelimitedTextAction = layerMenu->addAction(
+        QIcon(":/icons/table.png"),
+        "Add Delimited Text Layer...",
+        this,
+        &MainWindow::onAddDelimitedTextLayer
+    );
+    addDelimitedTextAction->setShortcut(QKeySequence("Ctrl+Shift+D"));
+
     layerMenu->addSeparator();
 
     layerPropertiesAction = layerMenu->addAction(QIcon(":/icons/properties.png"), "Layer Properties...", this, &MainWindow::onShowLayerProperties);
@@ -631,6 +651,686 @@ void MainWindow::setupMenuBar()
     helpMenu->addSeparator();
     helpMenu->addAction(QIcon(":/icons/about.png"), "About QGIS");
 }
+
+// ====================================
+// FUNCTION 1: showCreateVectorDialog()
+// ADD TO mainwindow.cpp
+// ====================================
+
+void MainWindow::showCreateVectorDialog()
+{
+    QDialog *dialog = new QDialog(this);
+    dialog->setWindowTitle("Create Vector Layer from Coordinates");
+    dialog->resize(700, 600);
+
+    QVBoxLayout *mainLayout = new QVBoxLayout(dialog);
+
+    // Geometry type
+    QGroupBox *typeGroup = new QGroupBox("Geometry Type");
+    QHBoxLayout *typeLayout = new QHBoxLayout(typeGroup);
+    QComboBox *typeCombo = new QComboBox();
+    typeCombo->addItems({"Point", "Line", "Polygon"});
+    typeLayout->addWidget(new QLabel("Type:"));
+    typeLayout->addWidget(typeCombo);
+    typeLayout->addStretch();
+    mainLayout->addWidget(typeGroup);
+
+    // Layer properties
+    QGroupBox *nameGroup = new QGroupBox("Layer Properties");
+    QFormLayout *nameLayout = new QFormLayout(nameGroup);
+    QLineEdit *layerNameEdit = new QLineEdit();
+    layerNameEdit->setPlaceholderText("Enter layer name");
+    layerNameEdit->setText("Vector_" + QDateTime::currentDateTime().toString("yyyyMMdd_hhmmss"));
+    nameLayout->addRow("Layer Name:", layerNameEdit);
+
+    QTextEdit *descEdit = new QTextEdit();
+    descEdit->setMaximumHeight(60);
+    descEdit->setPlaceholderText("Optional description");
+    nameLayout->addRow("Description:", descEdit);
+    mainLayout->addWidget(nameGroup);
+
+    // Coordinates
+    QGroupBox *coordGroup = new QGroupBox("Coordinates");
+    QVBoxLayout *coordLayout = new QVBoxLayout(coordGroup);
+
+    QLabel *helpLabel = new QLabel(
+        "<b>Format: longitude,latitude</b> (one per line)<br>"
+        "Example: -122.419, 37.775"
+    );
+    helpLabel->setStyleSheet("padding: 8px; background-color: #fff3e0;");
+    coordLayout->addWidget(helpLabel);
+
+    QTextEdit *coordEdit = new QTextEdit();
+    coordEdit->setPlaceholderText(
+        "-122.419, 37.775\n"
+        "-122.416, 37.773\n"
+        "-122.413, 37.776"
+    );
+    coordEdit->setMinimumHeight(200);
+    coordLayout->addWidget(coordEdit);
+
+    // Example buttons
+    QHBoxLayout *exLayout = new QHBoxLayout();
+    QPushButton *exPointBtn = new QPushButton("Example Point");
+    QPushButton *exLineBtn = new QPushButton("Example Line");
+    QPushButton *exPolyBtn = new QPushButton("Example Polygon");
+    exLayout->addWidget(exPointBtn);
+    exLayout->addWidget(exLineBtn);
+    exLayout->addWidget(exPolyBtn);
+    exLayout->addStretch();
+    coordLayout->addLayout(exLayout);
+    mainLayout->addWidget(coordGroup);
+
+    // Color
+    QGroupBox *styleGroup = new QGroupBox("Style");
+    QHBoxLayout *styleLayout = new QHBoxLayout(styleGroup);
+    QPushButton *colorBtn = new QPushButton("Choose Color");
+    QLabel *colorPreview = new QLabel();
+    colorPreview->setFixedSize(50, 30);
+    QColor selectedColor = QColor(0, 120, 215);
+    colorPreview->setStyleSheet(QString("background-color: %1; border: 1px solid black;")
+                               .arg(selectedColor.name()));
+    styleLayout->addWidget(new QLabel("Color:"));
+    styleLayout->addWidget(colorBtn);
+    styleLayout->addWidget(colorPreview);
+    styleLayout->addStretch();
+    mainLayout->addWidget(styleGroup);
+
+    // Buttons
+    QDialogButtonBox *buttonBox = new QDialogButtonBox(
+        QDialogButtonBox::Ok | QDialogButtonBox::Cancel);
+    buttonBox->button(QDialogButtonBox::Ok)->setText("Create Vector Layer");
+    mainLayout->addWidget(buttonBox);
+
+    // Example button connections
+    connect(exPointBtn, &QPushButton::clicked, [coordEdit, typeCombo]() {
+        coordEdit->setPlainText("-122.419, 37.775");
+        typeCombo->setCurrentText("Point");
+    });
+
+    connect(exLineBtn, &QPushButton::clicked, [coordEdit, typeCombo]() {
+        coordEdit->setPlainText(
+            "-122.419, 37.775\n"
+            "-122.416, 37.773\n"
+            "-122.413, 37.776"
+        );
+        typeCombo->setCurrentText("Line");
+    });
+
+    connect(exPolyBtn, &QPushButton::clicked, [coordEdit, typeCombo]() {
+        coordEdit->setPlainText(
+            "-122.419, 37.775\n"
+            "-122.416, 37.773\n"
+            "-122.413, 37.776\n"
+            "-122.419, 37.775"
+        );
+        typeCombo->setCurrentText("Polygon");
+    });
+
+    connect(colorBtn, &QPushButton::clicked, [&selectedColor, colorPreview]() {
+        QColor color = QColorDialog::getColor(selectedColor, nullptr, "Select Color");
+        if (color.isValid()) {
+            selectedColor = color;
+            colorPreview->setStyleSheet(QString("background-color: %1; border: 1px solid black;")
+                                       .arg(selectedColor.name()));
+        }
+    });
+
+    connect(buttonBox, &QDialogButtonBox::accepted, [=]() {
+        QString layerName = layerNameEdit->text().trimmed();
+        if (layerName.isEmpty()) {
+            QMessageBox::warning(dialog, "Missing Name", "Please enter a layer name");
+            return;
+        }
+
+        QString coordText = coordEdit->toPlainText().trimmed();
+        if (coordText.isEmpty()) {
+            QMessageBox::warning(dialog, "Missing Coordinates", "Please enter coordinates");
+            return;
+        }
+
+        // Parse coordinates
+        QVector<QPointF> coords;
+        QStringList lines = coordText.split('\n', Qt::SkipEmptyParts);
+
+        for (const QString &line : lines) {
+            QString trimmed = line.trimmed();
+            if (trimmed.isEmpty() || trimmed.startsWith('#')) continue;
+
+            QStringList parts = trimmed.split(QRegularExpression("[,\\s]+"), Qt::SkipEmptyParts);
+            if (parts.size() >= 2) {
+                bool okX, okY;
+                double x = parts[0].toDouble(&okX);
+                double y = parts[1].toDouble(&okY);
+
+                if (okX && okY) {
+                    coords.append(QPointF(x, y));
+                } else {
+                    QMessageBox::warning(dialog, "Invalid Coordinate",
+                                       QString("Invalid coordinate: %1").arg(line));
+                    return;
+                }
+            }
+        }
+
+        if (coords.isEmpty()) {
+            QMessageBox::warning(dialog, "No Coordinates", "No valid coordinates found");
+            return;
+        }
+
+        QString geomType = typeCombo->currentText();
+
+        // Validate
+        if (geomType == "Point" && coords.size() != 1) {
+            QMessageBox::warning(dialog, "Invalid Point", "Point requires exactly 1 coordinate");
+            return;
+        }
+        if (geomType == "Line" && coords.size() < 2) {
+            QMessageBox::warning(dialog, "Invalid Line", "Line requires at least 2 coordinates");
+            return;
+        }
+        if (geomType == "Polygon" && coords.size() < 3) {
+            QMessageBox::warning(dialog, "Invalid Polygon", "Polygon requires at least 3 coordinates");
+            return;
+        }
+
+        dialog->accept();
+    });
+
+    connect(buttonBox, &QDialogButtonBox::rejected, dialog, &QDialog::reject);
+
+    if (dialog->exec() == QDialog::Accepted) {
+        QString layerName = layerNameEdit->text().trimmed();
+        QString description = descEdit->toPlainText().trimmed();
+        QString geomType = typeCombo->currentText();
+
+        // Parse coordinates again
+        QVector<QPointF> coords;
+        QStringList lines = coordEdit->toPlainText().split('\n', Qt::SkipEmptyParts);
+
+        for (const QString &line : lines) {
+            QString trimmed = line.trimmed();
+            if (trimmed.isEmpty() || trimmed.startsWith('#')) continue;
+
+            QStringList parts = trimmed.split(QRegularExpression("[,\\s]+"), Qt::SkipEmptyParts);
+            if (parts.size() >= 2) {
+                coords.append(QPointF(parts[0].toDouble(), parts[1].toDouble()));
+            }
+        }
+
+        createVectorLayerFromCoordinates(geomType, coords, layerName, description);
+
+        if (messageLabel) {
+            messageLabel->setText(QString("Created %1: %2 (%3 points)")
+                                .arg(geomType).arg(layerName).arg(coords.size()));
+        }
+    }
+
+    delete dialog;
+}
+
+
+
+// ====================================
+// CSV/Delimited Text Vector Loading
+// ====================================
+
+void MainWindow::onAddDelimitedTextLayer()
+{
+    QString fileName = QFileDialog::getOpenFileName(
+        this,
+        "Add Delimited Text Layer",
+        lastUsedDirectory,
+        "CSV Files (*.csv *.txt);;All Files (*)"
+    );
+
+    if (!fileName.isEmpty()) {
+        lastUsedDirectory = QFileInfo(fileName).path();
+        loadDelimitedTextLayer(fileName);
+    }
+}
+
+void MainWindow::loadDelimitedTextLayer(const QString &filePath)
+{
+    // Create dialog similar to the screenshot
+    QDialog *dialog = new QDialog(this);
+    dialog->setWindowTitle("Data Source Manager | Delimited Text");
+    dialog->resize(700, 600);
+
+    QVBoxLayout *mainLayout = new QVBoxLayout(dialog);
+
+    // File info
+    QGroupBox *fileGroup = new QGroupBox("File");
+    QFormLayout *fileLayout = new QFormLayout(fileGroup);
+
+    QLabel *fileNameLabel = new QLabel(QFileInfo(filePath).fileName());
+    fileNameLabel->setStyleSheet("font-weight: bold;");
+    fileLayout->addRow("File name:", fileNameLabel);
+
+    // Encoding
+    QComboBox *encodingCombo = new QComboBox();
+    encodingCombo->addItems({"UTF-8", "ISO-8859-1", "Windows-1252", "UTF-16"});
+    encodingCombo->setCurrentText("UTF-8");
+    fileLayout->addRow("Encoding:", encodingCombo);
+
+    // File format
+    QGroupBox *formatGroup = new QGroupBox("File Format");
+    QVBoxLayout *formatLayout = new QVBoxLayout(formatGroup);
+
+    QRadioButton *csvRadio = new QRadioButton("CSV (comma separated values)");
+    csvRadio->setChecked(true);
+    formatLayout->addWidget(csvRadio);
+
+    QRadioButton *regexRadio = new QRadioButton("Regular expression delimiter");
+    formatLayout->addWidget(regexRadio);
+
+    QRadioButton *customRadio = new QRadioButton("Custom delimiters");
+    formatLayout->addWidget(customRadio);
+
+    QLineEdit *delimiterEdit = new QLineEdit();
+    delimiterEdit->setPlaceholderText("Enter custom delimiter");
+    delimiterEdit->setEnabled(false);
+    formatLayout->addWidget(delimiterEdit);
+
+    connect(customRadio, &QRadioButton::toggled, delimiterEdit, &QLineEdit::setEnabled);
+
+    mainLayout->addWidget(fileGroup);
+    mainLayout->addWidget(formatGroup);
+
+    // Geometry Definition
+    QGroupBox *geomGroup = new QGroupBox("Geometry Definition");
+    QVBoxLayout *geomLayout = new QVBoxLayout(geomGroup);
+
+    QRadioButton *pointCoordRadio = new QRadioButton("Point coordinates");
+    pointCoordRadio->setChecked(true);
+    geomLayout->addWidget(pointCoordRadio);
+
+    QHBoxLayout *coordLayout = new QHBoxLayout();
+    coordLayout->addWidget(new QLabel("X field:"));
+    QComboBox *xFieldCombo = new QComboBox();
+    xFieldCombo->setEditable(true);
+    xFieldCombo->addItems({"longitude", "lon", "x", "long", "Lon", "Longitude"});
+    coordLayout->addWidget(xFieldCombo);
+
+    coordLayout->addWidget(new QLabel("Y field:"));
+    QComboBox *yFieldCombo = new QComboBox();
+    yFieldCombo->setEditable(true);
+    yFieldCombo->addItems({"latitude", "lat", "y", "Lat", "Latitude"});
+    coordLayout->addWidget(yFieldCombo);
+    geomLayout->addLayout(coordLayout);
+
+    QRadioButton *wktRadio = new QRadioButton("Well known text (WKT)");
+    geomLayout->addWidget(wktRadio);
+
+    QRadioButton *dmsRadio = new QRadioButton("DMS coordinates");
+    geomLayout->addWidget(dmsRadio);
+
+    QRadioButton *noGeomRadio = new QRadioButton("No geometry (attribute only table)");
+    geomLayout->addWidget(noGeomRadio);
+
+    // Geometry CRS
+    QHBoxLayout *crsLayout = new QHBoxLayout();
+    crsLayout->addWidget(new QLabel("Geometry CRS:"));
+    QComboBox *crsCombo = new QComboBox();
+    crsCombo->addItem("EPSG:4326 - WGS 84");
+    crsCombo->addItem("EPSG:3857 - Web Mercator");
+    crsCombo->addItem("EPSG:32633 - UTM zone 33N");
+    crsLayout->addWidget(crsCombo, 1);
+    geomLayout->addLayout(crsLayout);
+
+    mainLayout->addWidget(geomGroup);
+
+    // Sample Data
+    QGroupBox *sampleGroup = new QGroupBox("Sample Data");
+    QVBoxLayout *sampleLayout = new QVBoxLayout(sampleGroup);
+
+    QTextEdit *sampleEdit = new QTextEdit();
+    sampleEdit->setReadOnly(true);
+    sampleEdit->setMaximumHeight(150);
+
+    // Load first few lines of the file to show sample
+    QFile file(filePath);
+    if (file.open(QIODevice::ReadOnly | QIODevice::Text)) {
+        QTextStream stream(&file);
+        QString sample;
+        for (int i = 0; i < 5 && !stream.atEnd(); i++) {
+            sample += stream.readLine() + "\n";
+        }
+        sampleEdit->setText(sample);
+        file.close();
+    }
+
+    sampleLayout->addWidget(sampleEdit);
+    mainLayout->addWidget(sampleGroup);
+
+    // Buttons
+    QDialogButtonBox *buttonBox = new QDialogButtonBox(
+        QDialogButtonBox::Ok | QDialogButtonBox::Cancel | QDialogButtonBox::Help
+    );
+    buttonBox->button(QDialogButtonBox::Ok)->setText("Add");
+    buttonBox->button(QDialogButtonBox::Help)->setText("Help");
+    mainLayout->addWidget(buttonBox);
+
+    // Geometry type selector (could be in another group)
+    QGroupBox *typeGroup = new QGroupBox("Geometry Type (for WKT or custom)");
+    QHBoxLayout *typeLayout = new QHBoxLayout(typeGroup);
+    QComboBox *geomTypeCombo = new QComboBox();
+    geomTypeCombo->addItems({"Point", "Line", "Polygon", "MultiPoint", "MultiLineString", "MultiPolygon"});
+    typeLayout->addWidget(new QLabel("Type:"));
+    typeLayout->addWidget(geomTypeCombo);
+    typeLayout->addStretch();
+    mainLayout->addWidget(typeGroup);
+
+    // Connect OK button
+    connect(buttonBox, &QDialogButtonBox::accepted, [=]() {
+        // Determine geometry type
+        QString geometryType = "Point"; // Default
+
+        if (pointCoordRadio->isChecked()) {
+            // Point coordinates - need to determine if they form lines or polygons
+            // Ask user what to create
+            QMessageBox::StandardButton reply = QMessageBox::question(
+                dialog,
+                "Geometry Type",
+                "How do you want to interpret these points?\n\n"
+                "Yes - Create a LINE connecting all points\n"
+                "No - Create a POLYGON (closing the shape)\n"
+                "Cancel - Create individual POINTS",
+                QMessageBox::Yes | QMessageBox::No | QMessageBox::Cancel
+            );
+
+            if (reply == QMessageBox::Yes) {
+                geometryType = "Line";
+            } else if (reply == QMessageBox::No) {
+                geometryType = "Polygon";
+            } else if (reply == QMessageBox::Cancel) {
+                geometryType = "Point";
+            } else {
+                return; // User cancelled
+            }
+        } else if (wktRadio->isChecked()) {
+            geometryType = geomTypeCombo->currentText();
+        } else if (dmsRadio->isChecked()) {
+            geometryType = "Point"; // DMS typically points
+        } else if (noGeomRadio->isChecked()) {
+            QMessageBox::information(dialog, "Info", "Attribute-only tables not yet implemented");
+            return;
+        }
+
+        QString xField = xFieldCombo->currentText();
+        QString yField = yFieldCombo->currentText();
+
+        dialog->accept();
+
+        // Process the file
+        QVector<QPointF> coords = parseCoordinatesFromCSV(filePath, xField, yField);
+
+        if (coords.isEmpty()) {
+            QMessageBox::warning(this, "No Coordinates",
+                               "No valid coordinates found in the file.\n"
+                               "Please check your column names and delimiter.");
+            return;
+        }
+
+        QString layerName = QFileInfo(filePath).baseName();
+        QColor color;
+
+        if (geometryType == "Point") {
+            color = QColor(255, 0, 0, 200); // Red
+        } else if (geometryType == "Line") {
+            color = QColor(0, 0, 255, 200); // Blue
+        } else if (geometryType == "Polygon") {
+            color = QColor(0, 255, 0, 150); // Green
+        } else {
+            color = QColor(128, 128, 128, 200); // Gray
+        }
+
+        createLayerFromCSVPoints(layerName, geometryType, coords, color);
+
+        if (messageLabel) {
+            messageLabel->setText(QString("Loaded %1 from CSV: %2 (%3 points)")
+                                 .arg(geometryType).arg(layerName).arg(coords.size()));
+        }
+    });
+
+    connect(buttonBox, &QDialogButtonBox::rejected, dialog, &QDialog::reject);
+    connect(buttonBox->button(QDialogButtonBox::Help), &QPushButton::clicked, []() {
+        QMessageBox::information(nullptr, "Help",
+                               "Load vector data from delimited text files.\n\n"
+                               "• Point coordinates: Use X and Y fields for point data\n"
+                               "• WKT: Use Well-Known Text geometry strings\n"
+                               "• DMS: Degrees-Minutes-Seconds format\n\n"
+                               "For lines and polygons, all points will be connected in the order they appear.");
+    });
+
+    dialog->exec();
+    delete dialog;
+}
+
+QVector<QPointF> MainWindow::parseCoordinatesFromCSV(const QString &filePath,
+                                                     const QString &xField,
+                                                     const QString &yField)
+{
+    QVector<QPointF> coords;
+    QFile file(filePath);
+
+    if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
+        QMessageBox::critical(this, "Error", "Cannot open file: " + filePath);
+        return coords;
+    }
+
+    QTextStream stream(&file);
+    if (stream.atEnd()) return coords;
+
+    // Read header
+    QString headerLine = stream.readLine();
+    QStringList headers = headerLine.split(',', Qt::SkipEmptyParts);
+
+    // Clean headers (remove quotes, trim whitespace)
+    for (QString &h : headers) {
+        h = h.trimmed();
+        if (h.startsWith('"') && h.endsWith('"')) {
+            h = h.mid(1, h.length() - 2);
+        }
+    }
+
+    // Find column indices
+    int xIndex = -1;
+    int yIndex = -1;
+
+    for (int i = 0; i < headers.size(); i++) {
+        if (headers[i].compare(xField, Qt::CaseInsensitive) == 0) {
+            xIndex = i;
+        }
+        if (headers[i].compare(yField, Qt::CaseInsensitive) == 0) {
+            yIndex = i;
+        }
+    }
+
+    if (xIndex == -1 || yIndex == -1) {
+        file.close();
+        QMessageBox::warning(this, "Columns Not Found",
+                           QString("Could not find columns '%1' and '%2' in the CSV.\n\n"
+                                   "Available columns: %3")
+                           .arg(xField).arg(yField)
+                           .arg(headers.join(", ")));
+        return coords;
+    }
+
+    // Parse data rows
+    int lineNum = 1;
+    while (!stream.atEnd()) {
+        QString line = stream.readLine();
+        lineNum++;
+
+        if (line.trimmed().isEmpty()) continue;
+
+        // Simple CSV parsing (handles quoted fields)
+        QStringList fields;
+        QString current;
+        bool inQuotes = false;
+
+        for (QChar c : line) {
+            if (c == '"') {
+                inQuotes = !inQuotes;
+            } else if (c == ',' && !inQuotes) {
+                fields.append(current.trimmed());
+                current.clear();
+            } else {
+                current += c;
+            }
+        }
+        fields.append(current.trimmed()); // Last field
+
+        if (fields.size() <= qMax(xIndex, yIndex)) {
+            qDebug() << "Line" << lineNum << "has insufficient fields, skipping";
+            continue;
+        }
+
+        bool xOk, yOk;
+        double x = fields[xIndex].toDouble(&xOk);
+        double y = fields[yIndex].toDouble(&yOk);
+
+        if (xOk && yOk) {
+            coords.append(QPointF(x, y));
+        } else {
+            qDebug() << "Line" << lineNum << "invalid coordinates:"
+                     << fields[xIndex] << "," << fields[yIndex];
+        }
+    }
+
+    file.close();
+    return coords;
+}
+
+void MainWindow::createLayerFromCSVPoints(const QString &layerName,
+                                         const QString &geometryType,
+                                         const QVector<QPointF> &coords,
+                                         const QColor &color)
+{
+    if (!mapScene || coords.isEmpty()) {
+        QMessageBox::critical(this, "Error", "Invalid data for layer creation");
+        return;
+    }
+
+    // Scale factor
+    double scaleFactor = 100.0;
+    if (isGeoTIFFLoaded && hasGeoTransform) {
+        scaleFactor = 1000.0;
+    }
+
+    QList<QGraphicsItem*> items;
+
+    if (geometryType == "Point") {
+        // Create points individually
+        for (const QPointF &pt : coords) {
+            double x = pt.x() * scaleFactor;
+            double y = pt.y() * -scaleFactor;
+
+            double pointSize = 6.0;
+            QGraphicsEllipseItem *item = mapScene->addEllipse(
+                x - pointSize/2, y - pointSize/2, pointSize, pointSize
+            );
+            item->setPen(QPen(color, 1));
+            item->setBrush(QBrush(color));
+            item->setToolTip(QString("Point: %1, %2").arg(pt.x()).arg(pt.y()));
+            items.append(item);
+        }
+    } else if (geometryType == "Line" && coords.size() >= 2) {
+        // Create line connecting all points
+        QPainterPath path;
+        QPointF firstPt = coords[0];
+        path.moveTo(firstPt.x() * scaleFactor, firstPt.y() * -scaleFactor);
+
+        for (int i = 1; i < coords.size(); i++) {
+            QPointF pt = coords[i];
+            path.lineTo(pt.x() * scaleFactor, pt.y() * -scaleFactor);
+        }
+
+        QGraphicsPathItem *item = mapScene->addPath(path);
+        item->setPen(QPen(color, 3));
+        item->setToolTip(QString("Line: %1 points").arg(coords.size()));
+        items.append(item);
+
+    } else if (geometryType == "Polygon" && coords.size() >= 3) {
+        // Create polygon
+        QPainterPath path;
+        QPointF firstPt = coords[0];
+        path.moveTo(firstPt.x() * scaleFactor, firstPt.y() * -scaleFactor);
+
+        for (int i = 1; i < coords.size(); i++) {
+            QPointF pt = coords[i];
+            path.lineTo(pt.x() * scaleFactor, pt.y() * -scaleFactor);
+        }
+        path.closeSubpath();
+
+        QGraphicsPathItem *item = mapScene->addPath(path);
+        item->setPen(QPen(color, 2));
+        QColor fillColor = color;
+        fillColor.setAlpha(100);
+        item->setBrush(QBrush(fillColor));
+        item->setToolTip(QString("Polygon: %1 points").arg(coords.size()));
+        items.append(item);
+    }
+
+    // Store items
+    for (QGraphicsItem *item : items) {
+        currentVectorItems.append(item);
+    }
+
+    // Add to layers tree
+    QTreeWidgetItem *layerItem = new QTreeWidgetItem(
+        QStringList() << layerName << QString("CSV (%1)").arg(geometryType));
+    layerItem->setCheckState(0, Qt::Checked);
+    layerItem->setIcon(0, QIcon(":/icons/table.png"));
+
+    // Find/create vector group
+    QTreeWidgetItem *vectorGroup = nullptr;
+    for (int i = 0; i < layersTree->topLevelItemCount(); ++i) {
+        if (layersTree->topLevelItem(i)->text(0) == "Vector Layers") {
+            vectorGroup = layersTree->topLevelItem(i);
+            break;
+        }
+    }
+
+    if (!vectorGroup) {
+        vectorGroup = new QTreeWidgetItem(layersTree, QStringList() << "Vector Layers");
+        vectorGroup->setIcon(0, QIcon(":/icons/folder.png"));
+        vectorGroup->setExpanded(true);
+    }
+
+    vectorGroup->addChild(layerItem);
+
+    // Create layer info
+    LayerInfo layer;
+    layer.name = layerName;
+    layer.filePath = "csv://" + layerName;
+    layer.type = "vector_csv";
+    layer.treeItem = layerItem;
+    layer.properties["geometry_type"] = geometryType;
+    layer.properties["point_count"] = coords.size();
+    layer.properties["source"] = "CSV";
+
+    // Store layer items
+//    layerVectorItems[layerName] = items;
+    loadedLayers.append(layer);
+    projectModified = true;
+
+    // Update project info
+    if (projectInfoLabel) {
+        projectInfoLabel->setText(QString("Project: %1\nLayers: %2")
+                                .arg(currentProjectName)
+                                .arg(loadedLayers.size()));
+    }
+
+    // Zoom to fit
+    fitAllImages();
+
+    QMessageBox::information(this, "CSV Layer Created",
+                           QString("Created %1 layer '%2' with %3 point(s)")
+                           .arg(geometryType).arg(layerName).arg(coords.size()));
+}
+
 void MainWindow::setupToolBars()
 {
     // File Toolbar
@@ -728,6 +1428,18 @@ void MainWindow::setupToolBars()
         searchCityBtn->setToolTip("Search for city and jump to location (Ctrl+Shift+F)");
         connect(searchCityBtn, &QToolButton::clicked, this, &MainWindow::onSearchCity);
         mapNavToolBar->addWidget(searchCityBtn);
+    }
+
+    if (mapNavToolBar) {
+        mapNavToolBar->addSeparator();
+
+        QToolButton *createVectorBtn = new QToolButton();
+        createVectorBtn->setIcon(QIcon(":/icons/vector_layer.png"));
+        createVectorBtn->setText("Create Vector");
+        createVectorBtn->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
+        createVectorBtn->setToolTip("Create vector from coordinates (Ctrl+Shift+V)");
+        connect(createVectorBtn, &QToolButton::clicked, this, &MainWindow::showCreateVectorDialog);
+        mapNavToolBar->addWidget(createVectorBtn);
     }
 
     // Navigation actions
@@ -908,7 +1620,150 @@ void MainWindow::setupCitySearch()
     }
 }
 
+// ====================================
+// FUNCTION 2: createVectorLayerFromCoordinates()
+// ADD TO mainwindow.cpp
+// ====================================
 
+void MainWindow::createVectorLayerFromCoordinates(const QString &geometryType,
+                                                  const QVector<QPointF> &coords,
+                                                  const QString &layerName,
+                                                  const QString &description)
+{
+    if (!mapScene || coords.isEmpty()) {
+        QMessageBox::critical(this, "Error", "Invalid data for vector creation");
+        return;
+    }
+
+    // Colors
+    QColor color;
+    if (geometryType == "Point") {
+        color = QColor(255, 0, 0, 200);  // Red
+    } else if (geometryType == "Line") {
+        color = QColor(0, 0, 255, 200);  // Blue
+    } else if (geometryType == "Polygon") {
+        color = QColor(0, 255, 0, 150);  // Green
+    }
+
+    // Scale factor
+    double scaleFactor = 100.0;
+    if (isGeoTIFFLoaded && hasGeoTransform) {
+        scaleFactor = 1000.0;
+    }
+
+    QList<QGraphicsItem*> items;
+
+    if (geometryType == "Point") {
+        // Create point
+        QPointF pt = coords[0];
+        double x = pt.x() * scaleFactor;
+        double y = pt.y() * -scaleFactor;
+
+        double pointSize = 10.0;
+        QGraphicsEllipseItem *item = mapScene->addEllipse(
+            x - pointSize/2, y - pointSize/2, pointSize, pointSize
+        );
+        item->setPen(QPen(color, 2));
+        item->setBrush(QBrush(color));
+        item->setToolTip(QString("Point: %1, %2").arg(pt.x()).arg(pt.y()));
+        items.append(item);
+
+    } else if (geometryType == "Line") {
+        // Create line
+        QPainterPath path;
+        QPointF firstPt = coords[0];
+        path.moveTo(firstPt.x() * scaleFactor, firstPt.y() * -scaleFactor);
+
+        for (int i = 1; i < coords.size(); i++) {
+            QPointF pt = coords[i];
+            path.lineTo(pt.x() * scaleFactor, pt.y() * -scaleFactor);
+        }
+
+        QGraphicsPathItem *item = mapScene->addPath(path);
+        item->setPen(QPen(color, 3));
+        item->setToolTip(QString("Line: %1 points").arg(coords.size()));
+        items.append(item);
+
+    } else if (geometryType == "Polygon") {
+        // Create polygon
+        QPainterPath path;
+        QPointF firstPt = coords[0];
+        path.moveTo(firstPt.x() * scaleFactor, firstPt.y() * -scaleFactor);
+
+        for (int i = 1; i < coords.size(); i++) {
+            QPointF pt = coords[i];
+            path.lineTo(pt.x() * scaleFactor, pt.y() * -scaleFactor);
+        }
+        path.closeSubpath();
+
+        QGraphicsPathItem *item = mapScene->addPath(path);
+        item->setPen(QPen(color, 2));
+        QColor fillColor = color;
+        fillColor.setAlpha(100);
+        item->setBrush(QBrush(fillColor));
+        item->setToolTip(QString("Polygon: %1 points").arg(coords.size()));
+        items.append(item);
+    }
+
+    // Store items
+    for (QGraphicsItem *item : items) {
+        currentVectorItems.append(item);
+    }
+
+    // Create layer info
+    LayerInfo layer;
+    layer.name = layerName;
+    layer.filePath = "coordinates://memory/" + layerName;
+    layer.type = "vector_coordinates";
+    layer.properties["geometry_type"] = geometryType;
+    layer.properties["point_count"] = coords.size();
+    layer.properties["description"] = description;
+
+    // Add to tree
+    QTreeWidgetItem *layerItem = new QTreeWidgetItem(
+        QStringList() << layerName << QString("Vector (%1)").arg(geometryType));
+    layerItem->setCheckState(0, Qt::Checked);
+    layerItem->setIcon(0, QIcon(":/icons/vector_layer.png"));
+    layer.treeItem = layerItem;
+
+    // Find/create vector group
+    QTreeWidgetItem *vectorGroup = nullptr;
+    for (int i = 0; i < layersTree->topLevelItemCount(); ++i) {
+        if (layersTree->topLevelItem(i)->text(0) == "Vector Layers") {
+            vectorGroup = layersTree->topLevelItem(i);
+            break;
+        }
+    }
+
+    if (!vectorGroup) {
+        vectorGroup = new QTreeWidgetItem(layersTree, QStringList() << "Vector Layers");
+        vectorGroup->setIcon(0, QIcon(":/icons/folder.png"));
+        vectorGroup->setExpanded(true);
+    }
+
+    vectorGroup->addChild(layerItem);
+
+    // Store layer items
+    layerVectorItems[layerName] = currentVectorItems;
+    currentVectorItems.clear();
+
+    loadedLayers.append(layer);
+    projectModified = true;
+
+    // Update UI
+    if (projectInfoLabel) {
+        projectInfoLabel->setText(QString("Project: %1\nLayers: %2")
+                                .arg(currentProjectName)
+                                .arg(loadedLayers.size()));
+    }
+
+    // Zoom to fit
+    fitAllImages();
+
+    QMessageBox::information(this, "Vector Created",
+                           QString("Created %1 layer '%2' with %3 point(s)")
+                           .arg(geometryType).arg(layerName).arg(coords.size()));
+}
 
 void MainWindow::setupDockWidgets()
 {
@@ -1836,6 +2691,10 @@ void MainWindow::setupConnections()
             }
         }
     });
+
+    QShortcut *vectorShortcut = new QShortcut(QKeySequence("Ctrl+Shift+V"), this);
+    connect(vectorShortcut, &QShortcut::activated, this, &MainWindow::showCreateVectorDialog);
+
 
     // Map view interactions
     if (mapView) {
@@ -6719,6 +7578,177 @@ bool MainWindow::storeImageInDatabase(const QString &filePath,
     emit imageStored(fileId, layer);
     return true;
 }
+// ====================================
+// FUNCTION 3: loadVectorFromDatabase()
+// ADD TO mainwindow.cpp
+// ====================================
+
+bool MainWindow::loadVectorFromDatabase(int fileId, const QString &fileName,
+                                        const QString &fileType,
+                                        const QByteArray &fileData,
+                                        const QString &layerName)
+{
+    qDebug() << "Loading vector from DB - File:" << fileName << "Type:" << fileType;
+
+    if (fileData.isEmpty()) {
+        QMessageBox::critical(this, "Error", "File data is empty");
+        return false;
+    }
+
+    // Create temp directory
+    QString tempDir = QStandardPaths::writableLocation(QStandardPaths::TempLocation);
+    QDir(tempDir).mkpath("gis_vectors");
+    QString vectorTempDir = QDir(tempDir).filePath("gis_vectors");
+
+    QString suffix = QFileInfo(fileName).suffix().toLower();
+    QString baseName = QFileInfo(fileName).completeBaseName();
+
+    // Handle shapefiles specially
+    if (suffix == "shp") {
+        qDebug() << "Processing shapefile...";
+
+        // Save .shp file
+        QString shpPath = QDir(vectorTempDir).filePath(fileName);
+        QFile shpFile(shpPath);
+        if (!shpFile.open(QIODevice::WriteOnly)) {
+            QMessageBox::critical(this, "Error", "Cannot create temp file: " + shpPath);
+            return false;
+        }
+        shpFile.write(fileData);
+        shpFile.close();
+
+        // Load associated files from database
+        QSqlDatabase db = getImageDb();
+        if (db.isValid() && db.isOpen()) {
+            QStringList extensions = {"shx", "dbf", "prj", "qpj", "cpg"};
+
+            for (const QString &ext : extensions) {
+                QString componentName = baseName + "." + ext;
+
+                QSqlQuery query(db);
+                query.prepare("SELECT file_data FROM gis_files WHERE file_name = :name");
+                query.bindValue(":name", componentName);
+
+                if (query.exec() && query.next()) {
+                    QByteArray componentData = query.value(0).toByteArray();
+                    QString componentPath = QDir(vectorTempDir).filePath(componentName);
+
+                    QFile componentFile(componentPath);
+                    if (componentFile.open(QIODevice::WriteOnly)) {
+                        componentFile.write(componentData);
+                        componentFile.close();
+                        qDebug() << "Saved component:" << componentName;
+                    }
+                }
+            }
+        }
+
+        // Load with GDAL
+        drawVectorLayer(shpPath);
+
+        // Cleanup
+        QDir(vectorTempDir).removeRecursively();
+
+        if (!currentVectorItems.isEmpty()) {
+            // Add to tree
+            QTreeWidgetItem *layerItem = new QTreeWidgetItem(
+                QStringList() << layerName << "Vector (Shapefile, DB)");
+            layerItem->setCheckState(0, Qt::Checked);
+            layerItem->setIcon(0, QIcon(":/icons/vector_layer.png"));
+
+            QTreeWidgetItem *vectorGroup = nullptr;
+            for (int i = 0; i < layersTree->topLevelItemCount(); ++i) {
+                if (layersTree->topLevelItem(i)->text(0) == "Vector Layers") {
+                    vectorGroup = layersTree->topLevelItem(i);
+                    break;
+                }
+            }
+            if (!vectorGroup) {
+                vectorGroup = new QTreeWidgetItem(layersTree, QStringList() << "Vector Layers");
+                vectorGroup->setIcon(0, QIcon(":/icons/folder.png"));
+                vectorGroup->setExpanded(true);
+            }
+            vectorGroup->addChild(layerItem);
+
+            LayerInfo layer;
+            layer.name = layerName;
+            layer.filePath = QString("database://%1/%2").arg(fileId).arg(fileName);
+            layer.type = "vector_db";
+            layer.treeItem = layerItem;
+            layer.properties["db_id"] = fileId;
+            layer.properties["format"] = "shapefile";
+            loadedLayers.append(layer);
+            projectModified = true;
+
+            return true;
+        }
+
+        return false;
+    }
+
+    // Other vector formats (GeoJSON, KML, etc.)
+    QString tempFilePath = QDir(vectorTempDir).filePath(fileName);
+
+    QFile tempFile(tempFilePath);
+    if (!tempFile.open(QIODevice::WriteOnly)) {
+        QMessageBox::critical(this, "Error", "Cannot create temp file: " + tempFilePath);
+        return false;
+    }
+    tempFile.write(fileData);
+    tempFile.close();
+
+    qDebug() << "Saved to temp:" << tempFilePath;
+
+    // Load vector
+    drawVectorLayer(tempFilePath);
+
+    // Cleanup
+    QFile::remove(tempFilePath);
+
+    if (!currentVectorItems.isEmpty()) {
+        // Determine display type
+        QString displayType = suffix.toUpper();
+        if (fileType == "geojson") displayType = "GeoJSON";
+        else if (fileType == "kml") displayType = "KML";
+        else if (fileType == "gml") displayType = "GML";
+        else if (fileType == "gpkg") displayType = "GeoPackage";
+
+        QTreeWidgetItem *layerItem = new QTreeWidgetItem(
+            QStringList() << layerName << QString("Vector (%1, DB)").arg(displayType));
+        layerItem->setCheckState(0, Qt::Checked);
+        layerItem->setIcon(0, QIcon(":/icons/vector_layer.png"));
+
+        QTreeWidgetItem *vectorGroup = nullptr;
+        for (int i = 0; i < layersTree->topLevelItemCount(); ++i) {
+            if (layersTree->topLevelItem(i)->text(0) == "Vector Layers") {
+                vectorGroup = layersTree->topLevelItem(i);
+                break;
+            }
+        }
+        if (!vectorGroup) {
+            vectorGroup = new QTreeWidgetItem(layersTree, QStringList() << "Vector Layers");
+            vectorGroup->setIcon(0, QIcon(":/icons/folder.png"));
+            vectorGroup->setExpanded(true);
+        }
+        vectorGroup->addChild(layerItem);
+
+        LayerInfo layer;
+        layer.name = layerName;
+        layer.filePath = QString("database://%1/%2").arg(fileId).arg(fileName);
+        layer.type = "vector_db";
+        layer.treeItem = layerItem;
+        layer.properties["db_id"] = fileId;
+        layer.properties["format"] = suffix;
+        loadedLayers.append(layer);
+        projectModified = true;
+
+        return true;
+    }
+}
+// ====================================
+// FUNCTION 2: createVectorLayerFromCoordinates()
+// ADD TO mainwindow.cpp
+// ====================================
 
 // =========== LOAD IMAGE ===========
 
@@ -6858,44 +7888,34 @@ bool MainWindow::loadImageFromDatabase(int fileId)
     }
 
     // 2. VECTOR GIS files (Shapefile, GeoJSON, KML, GPKG)
-    else if (fileType == "shapefile" || fileType == "geojson" || fileType == "kml" ||
-             fileType == "gml" || fileType == "gpkg" || suffix == "shp" ||
-             suffix == "geojson" || suffix == "kml" || suffix == "gml" || suffix == "gpkg") {
-        qDebug() << "Loading vector GIS file...";
-        drawVectorLayer(tempFilePath);
-        if (!currentVectorItems.isEmpty()) {
-            QTreeWidgetItem *layerItem = new QTreeWidgetItem(
-                        QStringList() << displayName << "Vector (DB)");
-            layerItem->setCheckState(0, Qt::Checked);
-            layerItem->setIcon(0, QIcon(":/icons/vector_layer.png"));
+       else if (fileType == "shapefile" || fileType == "shapefile_component" ||
+                fileType == "geojson" || fileType == "kml" ||
+                fileType == "gml" || fileType == "gpkg" || suffix == "shp" ||
+                suffix == "geojson" || suffix == "kml" || suffix == "gml" || suffix == "gpkg") {
+           qDebug() << "Loading vector GIS file...";
 
-            QTreeWidgetItem *vectorGroup = nullptr;
-            for (int i = 0; i < layersTree->topLevelItemCount(); ++i) {
-                if (layersTree->topLevelItem(i)->text(0) == "Vector Layers") {
-                    vectorGroup = layersTree->topLevelItem(i);
-                    break;
-                }
-            }
-            if (!vectorGroup) {
-                vectorGroup = new QTreeWidgetItem(layersTree, QStringList() << "Vector Layers");
-                vectorGroup->setIcon(0, QIcon(":/icons/folder.png"));
-                vectorGroup->setExpanded(true);
-            }
-            vectorGroup->addChild(layerItem);
-
-            LayerInfo layer;
-            layer.name = displayName;
-            layer.filePath = QString("database://%1/%2").arg(fileId).arg(fileName);
-            layer.type = "vector_db";
-            layer.treeItem = layerItem;
-            layer.properties["db_id"] = fileId;
-            layer.properties["format"] = suffix;
-            loadedLayers.append(layer);
-            projectModified = true;
-            success = true;
-        }
-        QFile::remove(tempFilePath);
-    }
+           if (loadVectorFromDatabase(fileId, fileName, fileType, fileData, displayName)) {
+               updateImageInfo();
+               if (messageLabel) {
+                   messageLabel->setText(
+                       QString("Loaded from database: %1 (ID: %2)")
+                       .arg(displayName).arg(fileId));
+               }
+               QMessageBox::information(this, "Success",
+                                      QString("Vector loaded!\n\nLayer: %1\nType: %2\nID: %3")
+                                      .arg(displayName)
+                                      .arg(fileType.isEmpty() ? suffix.toUpper() : fileType)
+                                      .arg(fileId));
+               emit imageLoaded(fileId, displayName);
+               success = true;
+           } else {
+               QMessageBox::critical(this, "Error",
+                                   QString("Failed to load vector from database.\nFile: %1\nType: %2")
+                                   .arg(fileName)
+                                   .arg(fileType));
+           }
+           QFile::remove(tempFilePath);
+       }
 
     // 3. OTHER VECTOR formats (SVG, AI, EPS, PDF, DXF, DWG, CDR, etc.)
     else if (fileType == "svg" || fileType == "pdf" || fileType == "ai" ||
